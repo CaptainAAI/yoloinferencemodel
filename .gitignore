@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+# Run-time files (they live in ~/yoloinference, not in the clone)
+model/
+models.json
+settings.json
+*.log
+*.bak-*

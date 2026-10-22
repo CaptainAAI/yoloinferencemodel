@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+python-multipart
+requests
+pillow
+# Installed with the Jetson setup (not from pip here): ultralytics, torch, tensorrt
