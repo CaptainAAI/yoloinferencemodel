@@ -47,12 +47,13 @@ It is one of four repositories that work together:
 ## Requirements
 
 - An NVIDIA Jetson (tested: Orin, JetPack with TensorRT 10.16) or any Linux machine with an NVIDIA GPU.
-- Python 3.10 or newer (tested 3.12) with Ultralytics, PyTorch and TensorRT installed as for any Ultralytics
-  TensorRT setup.
-- The web packages in `requirements.txt`:
+- PyTorch and TensorRT for Python, installed with the Jetson setup (JetPack and NVIDIA's Jetson PyTorch wheels).
+  `deploy.sh` only checks these two: PyPI has no CUDA build of PyTorch for Jetson.
+- Everything else is installed by `deploy.sh` when it is missing: Python 3.10+ and pip (apt), the web packages in
+  `requirements.txt` and Ultralytics (pip, `--user`). By hand that is:
 
   ```bash
-  pip3 install --user --break-system-packages -r requirements.txt
+  pip3 install --user --break-system-packages -r requirements.txt ultralytics
   ```
 
   (`--break-system-packages` is needed on Ubuntu 24.04's system Python; leave it out in a virtual environment.)
@@ -68,14 +69,22 @@ cd yoloinferencemodel
 bash deploy.sh
 ```
 
-`deploy.sh` checks the requirements, copies `server.py` to `~/yoloinference`, starts it in the background on port
-6767, waits until the models are loaded and prints them:
+Run it as your normal user (not with `sudo`); it asks for your sudo password once. `deploy.sh` installs what is
+missing, copies `server.py` to `~/yoloinference`, installs and starts the systemd service `yolo-inference` (it then
+also starts at every boot and restarts after a crash), waits until the models are loaded and prints a report:
 
 ```
-==> Status
-LISTEN 0      2048         0.0.0.0:6767       0.0.0.0:*
-  model1           ready    model1.engine  save_images=False
-  particle         ready    ParticlesDetection_0112.engine  save_images=False
+[6/6] Report
+
+==> Service yolo-inference
+    state       active (running), since Thu 2026-10-22 15:02:11 CST
+    at boot     enabled
+    ...
+==> server.py
+    versions    ultralytics 8.4.157, torch 2.14.0+cu130, python 3.12.3
+    models      5 (name, status, file, threads, requests, failed, save images)
+      model1         ready     model1.engine                      1        0     0  off
+      particle       ready     ParticlesDetection_0112.engine     4        0     0  on
 ```
 
 Check it from any machine:
@@ -84,9 +93,11 @@ Check it from any machine:
 curl http://140.129.7.180:6767/models
 ```
 
-To update later: `git pull && bash deploy.sh`. To make it start after a reboot: `bash deploy.sh --service`.
+To update later: `git pull && bash deploy.sh`. Every command of the script is in [deploy.sh](#deploysh).
 
 ## Running it by hand
+
+For testing; stop the service first (`bash deploy.sh stop`), since both use port 6767.
 
 ```bash
 cd ~/yoloinference
@@ -110,8 +121,9 @@ Everything the server uses lives next to `server.py` (`~/yoloinference` with `de
 | `model/` | Model files: `.engine`, `.pt`, `.onnx`. `model/.export/` holds conversions in progress |
 | `models.json` | The loaded models: name, file, threads, save switch. Written by the server |
 | `settings.json` | The image server address. Written by the server |
-| `server.log` | Output when started by `deploy.sh` |
+| `server.log` | The service's output (appended; `bash deploy.sh logs`) |
 | `server.py.bak-<date>` | The previous version, kept by `deploy.sh` |
+| `.deployed` | Which commit `deploy.sh` installed, and when |
 
 ## Configuration
 
@@ -276,14 +288,44 @@ FastAPI's interactive docs are at `http://<jetson>:6767/docs`.
 
 ## deploy.sh
 
-| Command | What it does |
-| --- | --- |
-| `bash deploy.sh` | Checks Python and packages, copies `server.py` to `~/yoloinference` (keeps the old one as `server.py.bak-<date>`), restarts it with `nohup`, waits up to 5 minutes for the models, prints the status. Survives logging out, not a reboot |
-| `bash deploy.sh --service` | The same as a systemd service `yolo-inference` (starts after a reboot, restarts after a crash, log in `server.log`). Asks for your sudo password once; later plain runs restart the service |
-| `bash deploy.sh --status` | Only shows what is running and the models |
+`deploy.sh` installs `server.py` as the systemd service `yolo-inference` and manages it. Run it on the Jetson, from
+the clone, as your normal user; it refuses to run as root and asks for sudo itself when it needs it.
 
-Settings: `INFER_DIR` (default `~/yoloinference`), `INFER_PORT` (6767), e.g. `INFER_PORT=6800 bash deploy.sh`.
-`model/`, `models.json` and `settings.json` are never touched.
+| Command | What it does | sudo |
+| --- | --- | --- |
+| `bash deploy.sh` (or `install`) | Install or update everything, then (re)start the service: the six steps below | yes |
+| `bash deploy.sh check` | Only checks the requirements and the installed files; installs and changes nothing. Exit code 1 when something is missing | no |
+| `bash deploy.sh status` | Service state, start time, start at boot, pid, memory, automatic restarts, log size, installed commit, settings; who holds port 6767; versions, GPU and every model with its status, threads, requests and failures; the last 8 log lines | no |
+| `bash deploy.sh logs [N]` | The last N log lines (default 50); `logs -f` follows the log | no |
+| `bash deploy.sh start`, `stop`, `restart` | Controls the service; `start` and `restart` wait until the models are loaded | yes |
+| `bash deploy.sh unit` | Prints the systemd unit file it installs | no |
+| `bash deploy.sh uninstall` | Stops, disables and removes the service; files, models and log stay | yes |
+| `bash deploy.sh help` | The usage text from the top of the script | no |
+
+`install`, step by step:
+
+| Step | What happens |
+| --- | --- |
+| 1. Requirements | Asks for sudo once. Installs with apt what is missing: `curl`, `python3`, `python3-pip`. Installs the packages of `requirements.txt` with pip (`--user`) when one is missing, and Ultralytics with pip when it is missing (the installed PyTorch is kept). Checks PyTorch (stops with a link to NVIDIA's Jetson wheels when it is missing), CUDA, TensorRT (tries apt `python3-libnvinfer` when missing) and the free disk space. Prints every version |
+| 2. Files | Copies `server.py` to `INFER_DIR`; a different previous version is kept as `server.py.bak-<date>`. Writes `.deployed` (commit and date) and remembers the settings. Lists the model files and the `models.json` entries, marking files that are missing |
+| 3. Service | Writes `/etc/systemd/system/yolo-inference.service` (prints the diff when it changes), reloads systemd and enables the service for every boot |
+| 4. Start | Stops a copy of `server.py` started by hand (for example with `nohup`) that holds the port, then restarts the service |
+| 5. Wait | Polls `GET /models` until it answers, up to `START_TIMEOUT` s, printing the last log line every 15 s. If the service crashes meanwhile, it prints the new log lines and stops |
+| 6. Report | The output of `bash deploy.sh status` |
+
+The service runs `python3 server.py` as your user in `INFER_DIR`, with `PORT` set; it starts after the network (and
+after `yolo-images` when installed), restarts 5 s after a crash, and appends its output to `server.log`. See it with
+`bash deploy.sh unit`; `systemctl status yolo-inference` works too.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `INFER_DIR` | `~/yoloinference` | Folder `server.py` runs in (models in `model/`) |
+| `INFER_PORT` | 6767 | Port |
+| `START_TIMEOUT` | 300 | Seconds to wait for the models to load |
+
+Example: `INFER_PORT=6800 bash deploy.sh`. A setting given once is remembered in
+`~/.config/yolo-deploy/yolo-inference.env` and used by every later run. `model/`, `models.json`, `settings.json` and
+`server.log` are never touched.
 
 ## How it works
 
@@ -302,7 +344,9 @@ Settings: `INFER_DIR` (default `~/yoloinference`), `INFER_PORT` (6767), e.g. `IN
 
 | Problem | Fix |
 | --- | --- |
-| `Connection refused` on 6767 | Not running: `bash deploy.sh`, then `tail ~/yoloinference/server.log` |
+| `Connection refused` on 6767 | Not running: `bash deploy.sh status` and `bash deploy.sh logs`, then `bash deploy.sh restart` |
+| `deploy.sh`: *sudo needs your password but there is no terminal* | Run it in a terminal on the Jetson, or `ssh -t rectech@140.129.7.180 'cd ~/repos/yoloinferencemodel && bash deploy.sh'` |
+| `deploy.sh`: *the service stopped while starting* | The log lines printed above the error say why (often a broken model file); fix it and run `bash deploy.sh restart` |
 | `503 Model 'x' is loading` | Wait a few seconds; `GET /models` shows `ready` when done |
 | `503 Model 'x' failed to load: ...` | Bad or missing file; check `GET /monitor` → `error`, fix the file, reload |
 | `404 Unknown model` | Use a name from `GET /models` (the name, not the file name) |
