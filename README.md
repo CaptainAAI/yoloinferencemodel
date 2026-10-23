@@ -108,8 +108,8 @@ uvicorn server:app --host 0.0.0.0 --port 6767      # the same
 `fastapi run server.py` works too, but only with `--port 6767`: without it, it uses 8000, which is Triton's port on
 the same Jetson.
 
-On the first start, `server.py` creates `models.json` with `model1`, `model2` and `model3` on `model1.engine`,
-`model2.engine` and `model3.engine`. From then on the models in `models.json` are loaded.
+On the first start, `server.py` creates an empty `models.json` (`DEFAULT_MODELS` is empty), so no model is loaded
+until you add one from the dashboard or with `POST /models`. From then on the models in `models.json` are loaded.
 
 ## Files and folders
 

@@ -363,7 +363,7 @@ for name, entry in json.load(open(os.path.join(base, "models.json"))).items():
         name, entry["file"], found, entry.get("workers", 1), "on" if entry.get("save_images") else "off"))
 PY
   else
-    info "no models.json yet: server.py creates it on its first start (model1-3.engine)"
+    info "no models.json yet: server.py creates it, empty, on its first start; add models from the dashboard"
   fi
 }
 

@@ -12,7 +12,7 @@ Run:
 
 Models are listed in models.json next to this file, e.g.
     {"model1": {"file": "model1.engine", "workers": 1}}
-with the files in model/. It is created from DEFAULT_MODELS on the first start
+with the files in model/. It is created on the first start (from DEFAULT_MODELS, empty by default)
 and rewritten whenever a model is loaded, reloaded or unloaded through the API.
 
 Monitoring figures come from Ultralytics only: each result's Results.speed and
@@ -86,11 +86,7 @@ from ultralytics.utils.torch_utils import get_cpu_info, get_gpu_info
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_DIR = BASE_DIR / "model"
 CONFIG_FILE = BASE_DIR / "models.json"
-DEFAULT_MODELS = {
-    "model1": "model1.engine",
-    "model2": "model2.engine",
-    "model3": "model3.engine",
-}
+DEFAULT_MODELS = {}  # models for a new install with no models.json; add them from the dashboard
 WORKERS_PER_MODEL = max(1, int(os.getenv("WORKERS_PER_MODEL", "1")))
 MAX_WORKERS = 4
 MODEL_SUFFIXES = {".engine", ".pt", ".onnx"}
